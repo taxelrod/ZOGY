@@ -26,20 +26,22 @@ from photutils import Background2D, SigmaClip, MedianBackground
 # for PSF fitting - see https://lmfit.github.io/lmfit-py/index.html
 from lmfit import minimize, Minimizer, Parameters, Parameter, report_fit
 
-from sip_to_pv import *
+from sip_tpv import *
 
 import resource
 
 # some global parameter settings
+
 #telescope = 'kmtnet'
 #telescope = 'meerlicht'
 #telescope = 'omegacam'
-telescope = 'kmtnet'
+#telescope = 'kmtnet'
+telescope = 'decam'
 
 #KMTNet/OmegaWHITE
 #if telescope=='kmtnet' or telescope=='omegacam' or telescope=='p48':
-subimage_size = 1024     # size of subimages
-subimage_border = 28     # border around subimage to avoid edge effects
+#subimage_size = 1024     # size of subimages
+#subimage_border = 28     # border around subimage to avoid edge effects
 #elif telescope=='meerlicht':
 #MeerLICHT:
 #subimage_size = 960      # size of subimages
@@ -48,6 +50,8 @@ subimage_border = 28     # border around subimage to avoid edge effects
 #subimage_size = 950      # size of subimages
 #subimage_border = 37     # border around subimage to avoid edge effects
 
+subimage_size = 2000
+subimage_border = 32
 # background estimation: these are the optional methods to estimate the
 # backbround and its standard deviation (STD):
 # (1) clipped median and STD of each object-masked subimage (simplest)
@@ -78,7 +82,7 @@ dosex_psffit = False     # do extra SExtractor run with PSF fitting
 
 # header keywords from which certain values are taken; these should be
 # present in the header, but the names can be changed here
-key_gain = 'GAIN'
+key_gain = 'ARAWGAIN'
 key_ron = 'RDNOISE'
 key_satlevel = 'SATURATE'
 key_ra = 'RA'
@@ -133,18 +137,19 @@ apphot_radii = [0.67, 1, 1.5, 2, 3, 5, 7, 10] # list of radii in units
                                               # aperture photometry in
                                               # SExtractor general
 
-redo = False             # execute functions even if output file exist
-verbose = False          # print out extra info
+redo = True         # execute functions even if output file exist
+verbose = True          # print out extra info
 timing = True            # (wall-)time the different functions
 display = False          # show intermediate fits images
 make_plots = True        # make diagnostic plots and save them as pdf
 show_plots = False       # show diagnostic plots
+use_existing_wcs = False # Use existing wcs in new and ref images instead of running astrometry.net
 
 
 ################################################################################
 
 def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
-                        telescope=None, log=None, subpipe=False):
+                        telescope=None, log=None, subpipe=False, use_existing_wcs = False):
     
     """Function that accepts a new and a reference fits image, finds their
     WCS solution using Astrometry.net, runs SExtractor (inside
@@ -173,6 +178,9 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
 
     start_time1 = os.times()
 
+    if use_existing_wcs:
+        dosex = True
+        
     if subpipe and telescope is not None:
 
         # In the case of a subpipe run (and telescope is defined), all
@@ -290,7 +298,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         new_fits_wcs = base_new+'_wcs.fits'
         if not os.path.isfile(new_fits_wcs) or redo:
             result = run_wcs(base_new+'.fits', new_fits_wcs, ra_new, dec_new,
-                             gain_new, readnoise_new, fwhm_new, pixscale_new)
+                             gain_new, readnoise_new, fwhm_new, pixscale_new, use_existing_wcs)
 
         # run SExtractor for seeing estimate of ref_fits:
         sexcat_ref = base_ref+'.sexcat'
@@ -308,7 +316,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         ref_fits_wcs = base_ref+'_wcs.fits'
         if not os.path.isfile(ref_fits_wcs) or redo:
             result = run_wcs(base_ref+'.fits', ref_fits_wcs, ra_ref, dec_ref,
-                             gain_ref, readnoise_ref, fwhm_ref, pixscale_ref)
+                             gain_ref, readnoise_ref, fwhm_ref, pixscale_ref, use_existing_wcs)
 
 
         # remap ref to new
@@ -2418,10 +2426,11 @@ def ds9_arrays(**kwargs):
     
 ################################################################################
 
-def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale):
+def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale, use_existing_wcs):
 
     if timing: t = time.time()
     print '\nexecuting run_wcs ...'
+    print 'use_existing_wcs: ', use_existing_wcs
     
     scale_low = 0.99 * pixscale
     scale_high = 1.01 * pixscale
@@ -2455,7 +2464,57 @@ def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale):
         sex_par_temp = sex_par
             
     #scampcat = image_in.replace('.fits','.scamp')
-    cmd = ['solve-field', '--no-plots', '--no-fits2fits',
+#----------------------------------------------------------------------------
+    # prepare aperture radii string 
+    apphot_diams = np.array(apphot_radii) * 2 * fwhm
+    apphot_diams_str = ",".join(apphot_diams.astype(str))
+    if verbose:
+        print 'aperture diameters used for PHOT_APERTURES', apphot_diams_str
+
+    cmd_sex = 'sex -SEEING_FWHM '+str(seeing)+' -PARAMETERS_NAME '+sex_par_temp\
+              +' -PHOT_APERTURES '+apphot_diams_str+' -BACK_SIZE '+str(bkg_boxsize)\
+              +' -BACK_FILTERSIZE '+str(bkg_filtersize)
+
+    # add commands to produce BACKGROUND, BACKGROUND_RMS and
+    # background-subtracted image with all pixels where objects were
+    # detected set to zero (-OBJECTS). These are used to build an
+    # improved background map. 
+    bkg = image_in.replace('.fits','_bkg.fits')
+    bkg_std = image_in.replace('.fits','_bkg_std.fits')
+    objmask = image_in.replace('.fits','_objmask.fits')
+    cmd_sex += ' -CHECKIMAGE_TYPE BACKGROUND,BACKGROUND_RMS,-OBJECTS -CHECKIMAGE_NAME '\
+               +bkg+','+bkg_std+','+objmask
+
+    if use_existing_wcs:
+        # just write head of incoming file to wcsfile
+        # add to cmd_sex
+        #    "-PARAMETERS_NAME %s", paramfn
+        #    "-FILTER_NAME %s", filterfn
+        #    "-CATALOG_TYPE FITS_1.0"
+        #    "-CATALOG_NAME %s", xylsfn
+        #    fitsimgfn
+        # and then run cmd_sex - but where is its input coming from?
+        if False:
+            wcsfile = image_in.replace('.fits', '.wcs')
+            with fits.open(image_in) as hdulist:
+                header_in = hdulist[0].header
+                wcshdu = fits.PrimaryHDU(header=header_in)
+                wcshdu.writeto(wcsfile, clobber=True)
+            image_axy = image_in.replace('.fits','.axy')
+            cmd = ['augment-xylist', '-i', image_in, '-o', image_axy, '-k', sexcat,
+                   '--x-column', 'XWIN_IMAGE', '--y-column', 'YWIN_IMAGE',
+                   '--sextractor-config', sex_cfg,
+                   '--sextractor-path', cmd_sex]
+            print cmd
+            result = call(cmd)
+            print 'augment-xylist done'
+
+            cmd = ['new-wcs', '-i', image_axy, '-w', wcsfile, '-o', image_out, '-d']
+
+            print cmd
+            result = call(cmd)
+            print 'new-wcs done'
+        cmd = ['solve-field', '--no-plots',
            '--sextractor-config', sex_cfg,
            '--x-column', 'XWIN_IMAGE', '--y-column', 'YWIN_IMAGE',
            '--sort-column', 'FLUX_AUTO',
@@ -2466,7 +2525,49 @@ def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale):
            #'--code-tolerance', str(0.01), 
            #'--quad-size-min', str(0.1),
            # for KMTNet images restrict the max quad size:
-           '--quad-size-max', str(0.1),
+           '--quad-size-max', str(0.4),
+           # number of field objects to look at:
+           #'--depth', str(10),
+           #'--scamp', scampcat,
+           image_in,
+           '--tweak-order', str(astronet_tweak_order), '--scale-low', str(scale_low),
+           '--scale-high', str(scale_high), '--scale-units', 'app',
+           '--ra', str(ra), '--dec', str(dec), '--radius', str(2.),
+               '--new-fits', image_out, '--overwrite', '--just-augment']
+
+
+        cmd += ['--sextractor-path', cmd_sex]
+        if verbose:
+            print 'Astrometry.net command:', cmd
+
+        result = call(cmd)
+
+        wcsfile = image_in.replace('.fits', '.wcs')
+        with fits.open(image_in) as hdulist:
+            header_in = hdulist[0].header
+            wcshdu = fits.PrimaryHDU(header=header_in)
+            wcshdu.writeto(wcsfile, clobber=True)
+
+        image_axy = image_in.replace('.fits','.axy')
+        cmd = ['new-wcs', '-i', image_in, '-w', wcsfile, '-o', image_out, '-d']
+
+        print cmd
+        result = call(cmd)
+        print 'new-wcs done'
+        
+    else:
+        cmd = ['solve-field', '--no-plots',
+           '--sextractor-config', sex_cfg,
+           '--x-column', 'XWIN_IMAGE', '--y-column', 'YWIN_IMAGE',
+           '--sort-column', 'FLUX_AUTO',
+           '--no-remove-lines',
+           '--keep-xylist', sexcat,
+           # ignore existing WCS headers in FITS input images
+           #'--no-verify', 
+           #'--code-tolerance', str(0.01), 
+           #'--quad-size-min', str(0.1),
+           # for KMTNet images restrict the max quad size:
+           '--quad-size-max', str(0.4),
            # number of field objects to look at:
            #'--depth', str(10),
            #'--scamp', scampcat,
@@ -2476,34 +2577,16 @@ def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale):
            '--ra', str(ra), '--dec', str(dec), '--radius', str(2.),
            '--new-fits', image_out, '--overwrite']
 
-    # prepare aperture radii string 
-    apphot_diams = np.array(apphot_radii) * 2 * fwhm
-    apphot_diams_str = ",".join(apphot_diams.astype(str))
-    if verbose:
-        print 'aperture diameters used for PHOT_APERTURES', apphot_diams_str
-    
-    cmd_sex = 'sex -SEEING_FWHM '+str(seeing)+' -PARAMETERS_NAME '+sex_par_temp\
-              +' -PHOT_APERTURES '+apphot_diams_str+' -BACK_SIZE '+str(bkg_boxsize)\
-              +' -BACK_FILTERSIZE '+str(bkg_filtersize)
-    
-    # add commands to produce BACKGROUND, BACKGROUND_RMS and
-    # background-subtracted image with all pixels where objects were
-    # detected set to zero (-OBJECTS). These are used to build an
-    # improved background map. 
-    bkg = image_in.replace('.fits','_bkg.fits')
-    bkg_std = image_in.replace('.fits','_bkg_std.fits')
-    objmask = image_in.replace('.fits','_objmask.fits')
-    cmd_sex += ' -CHECKIMAGE_TYPE BACKGROUND,BACKGROUND_RMS,-OBJECTS -CHECKIMAGE_NAME '\
-               +bkg+','+bkg_std+','+objmask
-        
-    cmd += ['--sextractor-path', cmd_sex]
-    if verbose:
-        print 'Astrometry.net command:', cmd
-    
-    result = call(cmd)
+
+        cmd += ['--sextractor-path', cmd_sex]
+        if verbose:
+            print 'Astrometry.net command:', cmd
+
+        result = call(cmd)
+
 
     if timing: t2 = time.time()
-
+#-----------------------------------------------------------------------------
     # this is the file containing just the WCS solution from Astrometry.net
     wcsfile = image_in.replace('.fits', '.wcs')
 
@@ -2526,7 +2609,13 @@ def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale):
     # convert SIP header keywords from Astrometry.net to PV keywords
     # that swarp, scamp (and sextractor) understand using this module
     # from David Shupe:
-    sip_to_pv(image_out, image_out, tpv_format=False)
+    with fits.open(image_out) as hdulist:
+        hdr_out = hdulist[0].header
+
+    if not use_existing_wcs:
+        sip_to_pv(hdr_out, tpv_format=False)
+
+    # DOES hdr_out actually get USED?!  Yes, as hdulist[0].header
 
     # read data from SExtractor catalog produced in Astrometry.net
     with fits.open(sexcat) as hdulist:
@@ -2922,6 +3011,7 @@ def run_psfex(cat_in, file_config, cat_out):
            '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling)]
     #       '-SAMPLE_FWHMRANGE', sample_fwhmrange,
     #       '-SAMPLE_MAXELLIP', maxellip_str]
+    print cmd
     result = call(cmd)    
 
     if timing: print 'wall-time spent in run_psfex', time.time()-t
