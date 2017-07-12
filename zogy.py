@@ -149,7 +149,8 @@ use_existing_wcs = False # Use existing wcs in new and ref images instead of run
 ################################################################################
 
 def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
-                        telescope=None, log=None, subpipe=False, use_existing_wcs = False):
+                        telescope=None, log=None, subpipe=False, use_existing_wcs = False,
+                        new_mask=None, ref_mask=None):
     
     """Function that accepts a new and a reference fits image, finds their
     WCS solution using Astrometry.net, runs SExtractor (inside
@@ -2655,9 +2656,11 @@ def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale, use_e
     header_axycat['FITSFILE'] = image_out
     header_axycat['SEXGAIN'] = gain
     # estimate background r.m.s. (needed by PSFex) from BACKGROUND column in sexcat
-    header_axycat['SEXBKDEV'] = np.sqrt(np.median(data_sexcat['BACKGROUND'])
+#    header_axycat['SEXBKDEV'] = np.sqrt(np.median(data_sexcat['BACKGROUND'])
+#                                        * gain + readnoise) / gain
+    header_axycat['SEXBKDEV'] = np.sqrt(np.std(data_sexcat['BACKGROUND'])**2
                                         * gain + readnoise) / gain
-    print 'background r.m.s. estimate:', np.sqrt(np.median(data_sexcat['BACKGROUND'])
+    print 'background r.m.s. estimate:', np.sqrt(np.std(data_sexcat['BACKGROUND'])**2
                                                  * gain + readnoise)/gain
         
     # replace old ra and dec with new ones
@@ -2760,7 +2763,8 @@ def run_remap(image_new, image_ref, image_out, image_out_size,
         header_out[key] = header_ref[key]
     # delete some others
     for key in ['WCSAXES', 'NAXIS1', 'NAXIS2']:
-        del header_out[key]
+        if header_out.get(key):
+            del header_out[key]
     # write to .head file
     with open(image_out.replace('.fits','.head'),'w') as newrefhdr:
         for card in header_out.cards:
