@@ -35,6 +35,8 @@ KRON_RADIUS              # Kron apertures in units of A or B
 PETRO_RADIUS             # Petrosian apertures in units of A or B                   
 SNR_WIN                  # Signal-to-noise ratio in a Gaussian window
 VIGNET(9,9)            # Pixel data around detection                               [count]
+IMAFLAGS_ISO             # FLAG-image flags ORed over the iso. profile             
+NIMAFLAGS_ISO            # Number of flagged pixels entering IMAFLAGS_ISO 
 # PMV 2017/01/11: in case we include PSF fitting with SExtractor, there
 # are some additional output columns to include
 #

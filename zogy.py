@@ -129,6 +129,8 @@ sex_cfg = cfg_dir+'sex.config'     # SExtractor configuration file
 sex_cfg_psffit = cfg_dir+'sex_psffit.config' # same for PSF-fitting version
 sex_par = cfg_dir+'sex.params'     # SExtractor output parameters definition file
 sex_par_psffit = cfg_dir+'sex_psffit.params' # same for PSF-fitting version
+sex_mask_par = cfg_dir+'sex_mask.params'     # SExtractor output parameters definition file
+sex_mask_par_psffit = cfg_dir+'sex_mask_psffit.params' # same for PSF-fitting version
 psfex_cfg = cfg_dir+'psfex.config' # PSFex configuration file
 swarp_cfg = cfg_dir+'swarp.config' # SWarp configuration file
 
@@ -193,7 +195,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         Constants = importlib.import_module('Utils.Constants_'+telescope)
         
         # make these global parameters
-        global subimage_size, subimage_border, bkg_method, bkg_nsigma, bkg_boxsize, bkg_filtersize, fratio_local, dxdy_local, transient_nsigma, nfakestars, fakestar_s2n, dosex, dosex_psffit, pixelscale, fwhm_imafrac, fwhm_detect_thresh, fwhm_class_sort, fwhm_frac, use_single_psf, psf_clean_factor, psf_radius, psf_sampling, cfg_dir, sex_cfg, sex_cfg_psffit, sex_par, sex_par_psffit, psfex_cfg, swarp_cfg, apphot_radii, redo, verbose, timing, display, make_plots, show_plots
+        global subimage_size, subimage_border, bkg_method, bkg_nsigma, bkg_boxsize, bkg_filtersize, fratio_local, dxdy_local, transient_nsigma, nfakestars, fakestar_s2n, dosex, dosex_psffit, pixelscale, fwhm_imafrac, fwhm_detect_thresh, fwhm_class_sort, fwhm_frac, use_single_psf, psf_clean_factor, psf_radius, psf_sampling, cfg_dir, sex_cfg, sex_cfg_psffit, sex_par, sex_par_psffit, sex_mask_par, sex_mask_par_psffit, psfex_cfg, swarp_cfg, apphot_radii, redo, verbose, timing, display, make_plots, show_plots
 
         subimage_size = Constants.Imager.subimage_size
         subimage_border = Constants.Imager.subimage_border
@@ -285,8 +287,12 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         
         # run SExtractor for seeing estimate of new_fits:
         sexcat_new = base_new+'.sexcat'
+        if new_mask:
+            sex_par_arg = sex_mask_par
+        else:
+            sex_par_arg = sex_par
         fwhm_new, fwhm_std_new = run_sextractor(base_new+'.fits', sexcat_new, sex_cfg,
-                                                sex_par, pixscale_new, fraction=fwhm_imafrac)
+                                                sex_par_arg, pixscale_new, fraction=fwhm_imafrac, mask_file=new_mask)
         print 'fwhm_new, fwhm_std_new', fwhm_new, fwhm_std_new
         print 'fwhm from header', header_new['SEEING']
         
@@ -302,9 +308,13 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
                              gain_new, readnoise_new, fwhm_new, pixscale_new, use_existing_wcs)
 
         # run SExtractor for seeing estimate of ref_fits:
+        if ref_mask:
+            sex_par_arg = sex_mask_par
+        else:
+            sex_par_arg = sex_par
         sexcat_ref = base_ref+'.sexcat'
         fwhm_ref, fwhm_std_ref = run_sextractor(base_ref+'.fits', sexcat_ref, sex_cfg,
-                                                sex_par, pixscale_ref, fraction=fwhm_imafrac)
+                                                sex_par_arg, pixscale_ref, fraction=fwhm_imafrac, mask_file=ref_mask )
         print 'fwhm_ref, fwhm_std_ref', fwhm_ref, fwhm_std_ref
         print 'fwhm from header', header_ref['SEEING']
         
@@ -360,10 +370,10 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     # ref, psf and background images
 
     data_new, psf_new, psf_orig_new, data_new_bkg, data_new_bkg_std = \
-        prep_optimal_subtraction(base_new+'_wcs.fits', nsubs, 'new', fwhm_new)
+        prep_optimal_subtraction(base_new+'_wcs.fits', nsubs, 'new', fwhm_new, input_mask=new_mask)
     data_ref, psf_ref, psf_orig_ref, data_ref_bkg, data_ref_bkg_std = \
         prep_optimal_subtraction(base_ref+'_wcs.fits', nsubs, 'ref', fwhm_ref,
-                                 remap=ref_fits_remap)
+                                 remap=ref_fits_remap, input_mask=ref_mask)
 
 
     # get x, y and fratios from matching PSFex stars across entire frame
@@ -1421,7 +1431,7 @@ def read_header(header, keywords):
 
 ################################################################################
     
-def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None):
+def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_mask=None):
     
     print '\nexecuting prep_optimal_subtraction ...'
     t = time.time()
@@ -1557,7 +1567,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None):
             print 'np.sum(mask_reject)', np.sum(mask_reject)
         
     # determine psf of input image with get_psf function
-    psf, psf_orig = get_psf(input_fits, header_wcs, nsubs, imtype, fwhm, pixscale)
+    psf, psf_orig = get_psf(input_fits, header_wcs, nsubs, imtype, fwhm, pixscale, image_mask=input_mask)
 
     # split full image into subimages
     # determine cutouts
@@ -1949,7 +1959,7 @@ def plot_scatter (x, y, yerr, limits, corder, cmap='rainbow_r', symbol='o',
 
 ################################################################################
 
-def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale):
+def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None):
 
     """Function that takes in [image] and determines the actual Point
     Spread Function as a function of position from the full frame, and
@@ -1965,13 +1975,18 @@ def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale):
 
     # determine image size from header
     xsize, ysize = ima_header['NAXIS1'], ima_header['NAXIS2']
-    
+
+    if image_mask:
+        sex_par_arg = sex_mask_par
+    else:
+        sex_par_arg = sex_par
+
     # run sextractor on image; this step is no longer needed as it is
     # done inside Astrometry.net, producing the same catalog as an
     # independent SExtractor run would.
     sexcat = image.replace('.fits', '.sexcat')
     if (not os.path.isfile(sexcat) or redo) and dosex:
-        result = run_sextractor(image, sexcat+'_alt', sex_cfg, sex_par, pixscale, fwhm=fwhm)
+        result = run_sextractor(image, sexcat+'_alt', sex_cfg, sex_par_arg, pixscale, fwhm=fwhm, mask_file=image_mask)
         
     # run psfex on SExtractor output catalog
     psfexcat = image.replace('.fits', '.psfexcat')
@@ -1986,7 +2001,7 @@ def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale):
     # related to the PSF fitting.
     if (not os.path.isfile(sexcat+'_psffit') or redo) and dosex_psffit:
         result = run_sextractor(image, sexcat+'_psffit', sex_cfg_psffit,
-                                sex_par_psffit, pixscale, fitpsf=True, fwhm=fwhm)
+                                sex_mask_par_psffit, pixscale, fitpsf=True, fwhm=fwhm, mask_file=image_mask)
         
     # read in PSF output binary table from psfex
     psfex_bintable = image.replace('.fits', '.psf')
@@ -2782,7 +2797,7 @@ def run_remap(image_new, image_ref, image_out, image_out_size,
 ################################################################################
 
 def run_sextractor(image, cat_out, file_config, file_params, pixscale,
-                   fitpsf=False, fraction=1.0, fwhm=5.0):
+                   fitpsf=False, fraction=1.0, fwhm=5.0, mask_file=None):
 
     """Function that runs SExtractor on [image], and saves the output
        catalog in [outcat], using the configuration file [file_config]
@@ -2821,6 +2836,18 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
         image_fraction = image.replace('.fits','_fraction.fits')
         fits.writeto(image_fraction, data_fraction.astype(np.float32), header, clobber=True)
 
+        if mask_file:
+            with fits.open(mask_file) as hdulist:
+                mask_header = hdulist[0].header
+                mask_data = hdulist[0].data
+                
+            mask_data_fraction = mask_data[center_y-halfsize_y:center_y+halfsize_y,
+                             center_x-halfsize_x:center_x+halfsize_x]
+
+            mask_fraction = mask_file.replace('.fits','_fraction.fits')
+            fits.writeto(mask_fraction, mask_data_fraction.astype(np.int32), mask_header, clobber=True)
+            mask_file = mask_fraction
+
         # make image point to image_fraction
         image = image_fraction
         cat_out = cat_out+'_fraction'
@@ -2849,6 +2876,9 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
     # provide PSF file from PSFex
     if fitpsf: cmd += ['-PSF_NAME', image.replace('.fits', '.psf')]
 
+    # if Mask file is supplied, add it
+    if mask_file: cmd += ['-FLAG_IMAGE', mask_file]
+    
     # run command
     result = call(cmd)
 

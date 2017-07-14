@@ -34,20 +34,23 @@ FLUX_RADIUS(2)           # Fraction-of-light radii                              
 KRON_RADIUS              # Kron apertures in units of A or B                        
 PETRO_RADIUS             # Petrosian apertures in units of A or B                   
 SNR_WIN                  # Signal-to-noise ratio in a Gaussian window
-VIGNET(9,9)            # Pixel data around detection                               [count]
+IMAFLAGS_ISO             # FLAG-image flags ORed over the iso. profile             
+NIMAFLAGS_ISO            # Number of flagged pixels entering IMAFLAGS_ISO 
+#VIGNET(51,51)            # Pixel data around detection                               [count]
+#
 # PMV 2017/01/11: in case we include PSF fitting with SExtractor, there
 # are some additional output columns to include
 #
-#XPSF_IMAGE               # X coordinate from PSF-fitting                             [pixel]
-#YPSF_IMAGE               # Y coordinate from PSF-fitting                             [pixel]
-#ALPHAPSF_J2000           # Right ascension of the fitted PSF (J2000)                 [deg]
-#DELTAPSF_J2000           # Declination of the fitted PSF (J2000)                     [deg]
-#FLUX_PSF                 # Flux from PSF-fitting                                     [count]
-#FLUXERR_PSF              # RMS flux error for PSF-fitting                            [count]
-#SPREAD_MODEL             # Spread parameter from model-fitting
-#SPREADERR_MODEL          # Spread parameter error from model-fitting
-#NITER_PSF                # Number of iterations for PSF-fitting                     
-#CHI2_PSF                 # Reduced chi2 from PSF-fitting                            
+XPSF_IMAGE               # X coordinate from PSF-fitting                             [pixel]
+YPSF_IMAGE               # Y coordinate from PSF-fitting                             [pixel]
+ALPHAPSF_J2000           # Right ascension of the fitted PSF (J2000)                 [deg]
+DELTAPSF_J2000           # Declination of the fitted PSF (J2000)                     [deg]
+FLUX_PSF                 # Flux from PSF-fitting                                     [count]
+FLUXERR_PSF              # RMS flux error for PSF-fitting                            [count]
+SPREAD_MODEL             # Spread parameter from model-fitting
+SPREADERR_MODEL          # Spread parameter error from model-fitting
+NITER_PSF                # Number of iterations for PSF-fitting                     
+CHI2_PSF                 # Reduced chi2 from PSF-fitting                            
 #
 # Original list of possible output parameters (this is the
 # default.param file from v. 2.19.5)
@@ -239,7 +242,8 @@ VIGNET(9,9)            # Pixel data around detection                            
 #FLAGS                    Extraction flags                                         
 #FLAGS_WEIGHT             Weighted extraction flags                                
 #FLAGS_WIN                Flags for WINdowed parameters                            
-          
+#IMAFLAGS_ISO             FLAG-image flags ORed over the iso. profile             
+#NIMAFLAGS_ISO            Number of flagged pixels entering IMAFLAGS_ISO           
 #NLOWWEIGHT_ISO           Nb of pixels with low weight over the iso. profile       
 #NLOWDWEIGHT_ISO          Nb of pixels with low det. weight over the iso. profile  
 #FWHM_IMAGE               FWHM assuming a gaussian core                             [pixel]
