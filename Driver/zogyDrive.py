@@ -40,10 +40,7 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
         return
 
     tempDir = path.join(obsDir,'tmp')
-    try:
-        os.mkdir(tempDir)
-    except OSError:
-        pass
+    mkdirNoSquawk(tempDir)
     
     for obs in obsList:
         # MEFsplit obs and dq image into tempDir
@@ -53,15 +50,48 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
         # MEFjoin the S_nn.fits images (and similar)
         image = obs[0]
         dq = obs[1]
-#        imageID = re.xxx
+
+        indx = image.rindex('.fits')
+        imageID = image[0:indx]
+        indx = dq.rindex('.fits')
+        dqID = dq[0:indx]
+        
+        mkdirNoSquawk(path.join(obsDir,imageID))
         if prepMEF(obsDir, image, tempDir):
             print 'Error processing image ', image
 
+        imagePat = re.compile(imageID + r'_(\d+).fits')
+        imageList = os.listdir(tempDir)
+        for i in imageList:
+            mtch = imagePat.match(i)
+            if mtch:
+                ccdID = mtch.group(1)
+                imageDestDir = path.join(obsDir, imageID, 'ccd_'+ccdID)
+                mkdirNoSquawk(imageDestDir)
+                os.renames(path.join(tempDir,i), path.join(imageDestDir, i))
+
+        mkdirNoSquawk(tempDir)
         if prepMEF(obsDir, dq, tempDir):
-           print 'Error processing dq image ', dq 
+           print 'Error processing dq image ', dq
+
+        imagePat = re.compile(dqID + r'_(\d+).fits')
+        imageList = os.listdir(tempDir)
+        for i in imageList:
+            mtch = imagePat.match(i)
+            if mtch:
+                ccdID = mtch.group(1)
+                imageDestDir = path.join(obsDir, imageID, 'ccd_'+ccdID)
+                mkdirNoSquawk(imageDestDir)
+                os.renames(path.join(tempDir,i), path.join(imageDestDir, i))
 
     return
 
+def mkdirNoSquawk(dir):
+    try:
+        os.mkdir(dir)
+    except OSError:
+        pass
+    
 def prepMEF(srcDir, imageName, destDir):
 
     imagePath = path.join(srcDir, imageName)
@@ -73,7 +103,7 @@ def prepMEF(srcDir, imageName, destDir):
     imageRoot = imageName[0:indx]
     imageFilePat = re.compile(imageRoot + r'_\d+.fits')
 
-    imageList = os.listdir(srcDir)
+    imageList = os.listdir(destDir)
     matched = False
     for t in imageList:
         if imageFilePat.match(t):

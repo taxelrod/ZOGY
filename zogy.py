@@ -32,23 +32,8 @@ import resource
 
 # some global parameter settings
 
-#telescope = 'kmtnet'
-#telescope = 'meerlicht'
-#telescope = 'omegacam'
-#telescope = 'kmtnet'
-telescope = 'decam'
 
-#KMTNet/OmegaWHITE
-#if telescope=='kmtnet' or telescope=='omegacam' or telescope=='p48':
-#subimage_size = 1024     # size of subimages
-#subimage_border = 28     # border around subimage to avoid edge effects
-#elif telescope=='meerlicht':
-#MeerLICHT:
-#subimage_size = 960      # size of subimages
-#subimage_border = 32     # border around subimage to avoid edge effects
-#trimmed MeerLICHT images:
-#subimage_size = 950      # size of subimages
-#subimage_border = 37     # border around subimage to avoid edge effects
+telescope = 'Decam'
 
 subimage_size = 2000
 subimage_border = 32
@@ -91,12 +76,7 @@ key_pixscale = 'PIXSCALE'
 key_exptime = 'EXPTIME'
 key_seeing = 'SEEING'    # does not need to be present - is estimated
                          # using parameters below
-#PTF:
-#if telescope=='p48':
-#key_ron = 'READNOI'
-#key_satlevel = 'SATURVAL'
-#key_ra = 'OBJRA'
-#key_dec = 'OBJDEC'
+
 
 # for seeing estimate
 fwhm_imafrac = 0.25      # fraction of image area that will be used
@@ -151,7 +131,7 @@ use_existing_wcs = False # Use existing wcs in new and ref images instead of run
 ################################################################################
 
 def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
-                        telescope=None, log=None, subpipe=False, use_existing_wcs = False,
+                        telescope=None, log=None, use_existing_wcs = False,
                         new_mask=None, ref_mask=None):
     
     """Function that accepts a new and a reference fits image, finds their
@@ -184,21 +164,21 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     if use_existing_wcs:
         dosex = True
         
-    if subpipe and telescope is not None:
+    if telescope is not None:
 
-        # In the case of a subpipe run (and telescope is defined), all
-        # the global parameters below are taken from the subpipe
+        # If telescope is defined), all
+        # the global parameters below are taken from the 
         # settings file (Constants) for a particular telescope rather
         # than their definitions at the top of this file. For the
         # parameter descriptions, see above.
 
-        Constants = importlib.import_module('Utils.Constants_'+telescope)
+        Constants = importlib.import_module(telescope)
         
         # make these global parameters
         global subimage_size, subimage_border, bkg_method, bkg_nsigma, bkg_boxsize, bkg_filtersize, fratio_local, dxdy_local, transient_nsigma, nfakestars, fakestar_s2n, dosex, dosex_psffit, pixelscale, fwhm_imafrac, fwhm_detect_thresh, fwhm_class_sort, fwhm_frac, use_single_psf, psf_clean_factor, psf_radius, psf_sampling, cfg_dir, sex_cfg, sex_cfg_psffit, sex_par, sex_par_psffit, sex_mask_par, sex_mask_par_psffit, psfex_cfg, swarp_cfg, apphot_radii, redo, verbose, timing, display, make_plots, show_plots
 
-        subimage_size = Constants.Imager.subimage_size
-        subimage_border = Constants.Imager.subimage_border
+        subimage_size = Constants.subimage_size
+        subimage_border = Constants.subimage_border
 
         bkg_method = Constants.bkg_method
         bkg_nsigma = Constants.bkg_nsigma
@@ -216,7 +196,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         dosex_psffit = Constants.dosex_psffit
 
         # pixelscale - this parameter is not used anywhere below
-        pixelscale = Constants.Imager.pixel_scale
+        #pixelscale = Constants.pixel_scale
 
         fwhm_imafrac = Constants.fwhm_imafrac
         fwhm_detect_thresh = Constants.fwhm_detect_thresh
@@ -249,15 +229,12 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     # define the base names of input fits files, base_new and
     # base_ref, as global so they can be used in any function in this
     # module
-    global base_new, base_ref
-    if subpipe:
-        # in case of subpipe, input images will have been WCS transformed
-        # already and have '_wcs.fits' in the name
-        base_new = new_fits.split('_wcs.fits')[0]
-        base_ref = ref_fits.split('_wcs.fits')[0]
-    else:
-        base_new = new_fits.split('.fits')[0]
-        base_ref = ref_fits.split('.fits')[0]
+    global base_new, base_ref, output_dir
+
+    base_new = new_fits.split('.fits')[0]
+    base_ref = ref_fits.split('.fits')[0]
+
+    (output_dir, base_unused) = os.path.split(new_fits)
         
     # read in header of new_fits
     t = time.time()
@@ -279,68 +256,58 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         print read_header(header_ref, keywords)
 
 
-    if not subpipe:    
+    # run SExtractor for seeing estimate of new_fits:
+    sexcat_new = base_new+'.sexcat'
+    if new_mask:
+        sex_par_arg = sex_mask_par
+    else:
+        sex_par_arg = sex_par
+    fwhm_new, fwhm_std_new = run_sextractor(base_new+'.fits', sexcat_new, sex_cfg,
+                                            sex_par_arg, pixscale_new, fraction=fwhm_imafrac, mask_file=new_mask)
+    print 'fwhm_new, fwhm_std_new', fwhm_new, fwhm_std_new
+    print 'fwhm from header', header_new['SEEING']
 
-        # in case of a subpipe run, the tasks below: running
-        # Astrometry.net and remapping the ref image to the new image,
-        # have already been done so this block can be skipped.
-        
-        # run SExtractor for seeing estimate of new_fits:
-        sexcat_new = base_new+'.sexcat'
-        if new_mask:
-            sex_par_arg = sex_mask_par
-        else:
-            sex_par_arg = sex_par
-        fwhm_new, fwhm_std_new = run_sextractor(base_new+'.fits', sexcat_new, sex_cfg,
-                                                sex_par_arg, pixscale_new, fraction=fwhm_imafrac, mask_file=new_mask)
-        print 'fwhm_new, fwhm_std_new', fwhm_new, fwhm_std_new
-        print 'fwhm from header', header_new['SEEING']
-        
-        # write seeing (in arcseconds) to header
-        #seeing_new = fwhm_new * pixscale_new
-        #seeing_new_str = str('{:.2f}'.format(seeing_new))
-        #header_new[key_seeing] = (seeing_new_str, '[arcsec] seeing estimated from central '+str(fwhm_imafrac))
+    # write seeing (in arcseconds) to header
+    #seeing_new = fwhm_new * pixscale_new
+    #seeing_new_str = str('{:.2f}'.format(seeing_new))
+    #header_new[key_seeing] = (seeing_new_str, '[arcsec] seeing estimated from central '+str(fwhm_imafrac))
 
-        # determine WCS solution of new_fits
-        new_fits_wcs = base_new+'_wcs.fits'
-        if not os.path.isfile(new_fits_wcs) or redo:
-            result = run_wcs(base_new+'.fits', new_fits_wcs, ra_new, dec_new,
-                             gain_new, readnoise_new, fwhm_new, pixscale_new, use_existing_wcs)
+    # determine WCS solution of new_fits
+    new_fits_wcs = base_new+'_wcs.fits'
+    if not os.path.isfile(new_fits_wcs) or redo:
+        result = run_wcs(base_new+'.fits', new_fits_wcs, ra_new, dec_new,
+                         gain_new, readnoise_new, fwhm_new, pixscale_new, use_existing_wcs)
 
-        # run SExtractor for seeing estimate of ref_fits:
-        if ref_mask:
-            sex_par_arg = sex_mask_par
-        else:
-            sex_par_arg = sex_par
-        sexcat_ref = base_ref+'.sexcat'
-        fwhm_ref, fwhm_std_ref = run_sextractor(base_ref+'.fits', sexcat_ref, sex_cfg,
-                                                sex_par_arg, pixscale_ref, fraction=fwhm_imafrac, mask_file=ref_mask )
-        print 'fwhm_ref, fwhm_std_ref', fwhm_ref, fwhm_std_ref
-        print 'fwhm from header', header_ref['SEEING']
-        
-        # write seeing (in arcseconds) to header
-        #seeing_ref = fwhm_ref * pixscale_ref
-        #seeing_ref_str = str('{:.2f}'.format(seeing_ref))
-        #header_ref[key_seeing] = (seeing_ref_str, '[arcsec] seeing estimated from central '+str(fwhm_imafrac))
+    # run SExtractor for seeing estimate of ref_fits:
+    if ref_mask:
+        sex_par_arg = sex_mask_par
+    else:
+        sex_par_arg = sex_par
+    sexcat_ref = base_ref+'.sexcat'
+    fwhm_ref, fwhm_std_ref = run_sextractor(base_ref+'.fits', sexcat_ref, sex_cfg,
+                                            sex_par_arg, pixscale_ref, fraction=fwhm_imafrac, mask_file=ref_mask )
+    print 'fwhm_ref, fwhm_std_ref', fwhm_ref, fwhm_std_ref
+    print 'fwhm from header', header_ref['SEEING']
 
-        # determine WCS solution of ref_fits
-        ref_fits_wcs = base_ref+'_wcs.fits'
-        if not os.path.isfile(ref_fits_wcs) or redo:
-            result = run_wcs(base_ref+'.fits', ref_fits_wcs, ra_ref, dec_ref,
-                             gain_ref, readnoise_ref, fwhm_ref, pixscale_ref, use_existing_wcs)
+    # write seeing (in arcseconds) to header
+    #seeing_ref = fwhm_ref * pixscale_ref
+    #seeing_ref_str = str('{:.2f}'.format(seeing_ref))
+    #header_ref[key_seeing] = (seeing_ref_str, '[arcsec] seeing estimated from central '+str(fwhm_imafrac))
+
+    # determine WCS solution of ref_fits
+    ref_fits_wcs = base_ref+'_wcs.fits'
+    if not os.path.isfile(ref_fits_wcs) or redo:
+        result = run_wcs(base_ref+'.fits', ref_fits_wcs, ra_ref, dec_ref,
+                         gain_ref, readnoise_ref, fwhm_ref, pixscale_ref, use_existing_wcs)
 
 
-        # remap ref to new
-        ref_fits_remap = base_ref+'_wcs_remap.fits'
-        #if not os.path.isfile(ref_fits_remap) or redo:
-        result = run_remap(base_new+'_wcs.fits', base_ref+'_wcs.fits', ref_fits_remap,
-                           [ysize_new, xsize_new], gain=gain_new, config=swarp_cfg)
+    # remap ref to new
+    ref_fits_remap = base_ref+'_wcs_remap.fits'
+    #if not os.path.isfile(ref_fits_remap) or redo:
+    result = run_remap(base_new+'_wcs.fits', base_ref+'_wcs.fits', ref_fits_remap,
+                       [ysize_new, xsize_new], gain=gain_new, config=swarp_cfg)
 
 
-    if subpipe:
-        fwhm_new = header_new['SEEING']
-        fwhm_ref = header_ref['SEEING']
-            
     # initialize full output images
     data_D_full = np.ndarray((ysize_new, xsize_new), dtype='float32')
     data_S_full = np.ndarray((ysize_new, xsize_new), dtype='float32')
@@ -416,7 +383,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('x (pixels)')
         plt.ylabel('y (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('dxdy.pdf')
+        plt.savefig(os.path.join(output_dir,'dxdy.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -426,7 +393,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('dx (pixels)')
         plt.ylabel('dy (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('dxdy.pdf')
+        plt.savefig(os.path.join(output_dir,'dxdy.pdf'))
         if show_plots: plt.show()
         plt.close()
         
@@ -436,7 +403,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('x (pixels)')
         plt.ylabel('dr (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('drx.pdf')
+        plt.savefig(os.path.join(output_dir,'drx.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -446,7 +413,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('y (pixels)')
         plt.ylabel('dr (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('dry.pdf')
+        plt.savefig(os.path.join(output_dir,'dry.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -459,7 +426,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('distance from image center (pixels)')
         plt.ylabel('dr (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('drdist.pdf')
+        plt.savefig(os.path.join(output_dir,'drdist.pdf'))
         if show_plots: plt.show()
         plt.close()
                 
@@ -469,7 +436,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('x (pixels)')
         plt.ylabel('dx (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('dxx.pdf')
+        plt.savefig(os.path.join(output_dir,'dxx.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -479,7 +446,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('y (pixels)')
         plt.ylabel('dy (pixels)')
         plt.title(new_fits+'\n vs '+ref_fits, fontsize=12)
-        plt.savefig('dyy.pdf')
+        plt.savefig(os.path.join(output_dir,'dyy.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -713,26 +680,26 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         if display and (nsub==0 or nsub==44 or nsub == nsubs/2 or nsub==nsubs-1):
 
             # just for displaying purpose:
-            fits.writeto('D.fits', data_D.astype(np.float32), clobber=True)
-            fits.writeto('S.fits', data_S.astype(np.float32), clobber=True)
-            fits.writeto('Scorr.fits', data_Scorr.astype(np.float32), clobber=True)
-            fits.writeto('Scorr_abs.fits', np.abs(data_Scorr).astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'D.fits'), data_D.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'S.fits'), data_S.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'Scorr.fits'), data_Scorr.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'Scorr_abs.fits'), np.abs(data_Scorr).astype(np.float32), clobber=True)
             #fits.writeto('Scorr_1sigma.fits', data_Scorr_1sigma, clobber=True)
         
             # write new and ref subimages to fits
             subname = '_sub'+str(nsub)
             newname = base_new+'_wcs'+subname+'.fits'
             #fits.writeto(newname, ((data_new[nsub]+bkg_new)/gain_new).astype(np.float32), clobber=True)
-            fits.writeto(newname, data_new[nsub].astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,newname), data_new[nsub].astype(np.float32), clobber=True)
             refname = base_ref+'_wcs'+subname+'.fits'
             #fits.writeto(refname, ((data_ref[nsub]+bkg_ref)/gain_ref).astype(np.float32), clobber=True)
-            fits.writeto(refname, data_ref[nsub].astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,refname), data_ref[nsub].astype(np.float32), clobber=True)
             # variance images
-            fits.writeto('Vnew.fits', var_new.astype(np.float32), clobber=True)
-            fits.writeto('Vref.fits', var_ref.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'Vnew.fits'), var_new.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'Vref.fits'), var_ref.astype(np.float32), clobber=True)
             # background images
-            fits.writeto('bkg_new.fits', bkg_new.astype(np.float32), clobber=True)
-            fits.writeto('bkg_ref.fits', bkg_ref.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'bkg_new.fits'), bkg_new.astype(np.float32), clobber=True)
+            fits.writeto(os.path.join(output_dir,'bkg_ref.fits'), bkg_ref.astype(np.float32), clobber=True)
             
             
             # and display
@@ -780,23 +747,15 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
 
     # write full new, ref, D and S images to fits
     if nfakestars>0:
-        fits.writeto('new.fits', data_new_full, header_new, clobber=True)
-        fits.writeto('ref.fits', data_ref_full, header_ref, clobber=True)
-    if not subpipe:
-        fits.writeto('D.fits', data_D_full, clobber=True)
-        fits.writeto('S.fits', data_S_full, clobber=True)
-        fits.writeto('Scorr.fits', data_Scorr_full, clobber=True)
-        fits.writeto('Scorr_abs.fits', np.abs(data_Scorr_full), clobber=True)
-        fits.writeto('Fpsf.fits', data_Fpsf_full, clobber=True)
-        fits.writeto('Fpsferr.fits', data_Fpsferr_full, clobber=True)
-    if subpipe:
-        fits.writeto('D.fits', data_D_full, clobber=True)
-        fits.writeto('S.fits', data_S_full, clobber=True)
-        fits.writeto('Scorr.fits', data_Scorr_full, clobber=True)
-        header_new.add_comment('Propagated header from new image to sub image.')
-        fits.writeto(sub, np.abs(data_Scorr_full), header_new, clobber=True)
-        fits.writeto('Fpsf.fits', data_Fpsf_full, clobber=True)
-        fits.writeto('Fpsferr.fits', data_Fpsferr_full, clobber=True)
+        fits.writeto(os.path.join(output_dir,'new.fits'), data_new_full, header_new, clobber=True)
+        fits.writeto(os.path.join(output_dir,'ref.fits'), data_ref_full, header_ref, clobber=True)
+
+    fits.writeto(os.path.join(output_dir,'D.fits'), data_D_full, clobber=True)
+    fits.writeto(os.path.join(output_dir,'S.fits'), data_S_full, clobber=True)
+    fits.writeto(os.path.join(output_dir,'Scorr.fits'), data_Scorr_full, clobber=True)
+    fits.writeto(os.path.join(output_dir,'Scorr_abs.fits'), np.abs(data_Scorr_full), clobber=True)
+    fits.writeto(os.path.join(output_dir,'Fpsf.fits'), data_Fpsf_full, clobber=True)
+    fits.writeto(os.path.join(output_dir,'Fpsferr.fits'), data_Fpsferr_full, clobber=True)
                 
     # make comparison plot of flux input and output
     if make_plots and nfakestars>0:
@@ -807,7 +766,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('subimage number')
         plt.ylabel('true flux (e-)')
         plt.title('fake stars true input flux')
-        plt.savefig('fakestar_flux_input.pdf')
+        plt.savefig(os.path.join(output_dir,'fakestar_flux_input.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -819,7 +778,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('subimage number')
         plt.ylabel('(true flux - ZOGY flux) / true flux')
         plt.title('fake stars true input flux vs. ZOGY Fpsf output flux')
-        plt.savefig('fakestar_flux_input_vs_ZOGYoutput.pdf')
+        plt.savefig(os.path.join(output_dir,'fakestar_flux_input_vs_ZOGYoutput.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -829,7 +788,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         plt.xlabel('subimage number')
         plt.ylabel('S/N from Scorr')
         plt.title('signal-to-noise ratio from Scorr')
-        plt.savefig('fakestar_S2N_ZOGYoutput.pdf')
+        plt.savefig(os.path.join(output_dir,'fakestar_S2N_ZOGYoutput.pdf'))
         if show_plots: plt.show()
         plt.close()
         
@@ -1514,9 +1473,9 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
         # with that of the original wcs-corrected reference image
         # for all background methods except 1
         if bkg_method!=1:
-            fits.writeto(bkg_fits, (data_bkg/gain).astype(np.float32),
+            fits.writeto(os.path.join(output_dir,bkg_fits), (data_bkg/gain).astype(np.float32),
                          header=header_wcs, clobber=True)
-            fits.writeto(bkg_std_fits, (data_bkg_std/gain).astype(np.float32),
+            fits.writeto(os.path.join(output_dir,bkg_std_fits), (data_bkg_std/gain).astype(np.float32),
                          header=header_wcs, clobber=True)
             # project ref image background maps to new image
             bkg_fits_remap = base_ref+'_bkg_remap.fits'
@@ -1534,9 +1493,9 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
                 data_bkg_std = hdulist[0].data * gain
         # only for method 1 the objmask needs to be projected
         else:
-            fits.writeto(objmask_fits, data_objmask.astype(np.float32),
+            fits.writeto(os.path.join(output_dir,objmask_fits), data_objmask.astype(np.float32),
                          header=header_wcs, clobber=True)
-            objmask_fits_remap = base_ref+'_objmask_remap.fits'
+            objmask_fits_remap = base_ref+'_objmask_remap.fits' ### NEEDS work
             result = run_remap(base_new+'_wcs.fits', objmask_fits, objmask_fits_remap,
                                [ysize, xsize], gain=gain, config=swarp_cfg,
                                resampling_type='NEAREST')
@@ -1609,7 +1568,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
     # ADU.
     # For subpipe this needs to be implemented such that the original
     # reference image background maps are not overwritten.
-    if (imtype=='new' and bkg_method!=2) or (imtype=='ref' and bkg_method>2):
+    if (imtype=='new' and bkg_method!=2) or (imtype=='ref' and bkg_method>2):  ### NEEDS work
         bkg_fits = input_fits.replace('_wcs.fits', '_bkg.fits')
         fits.writeto(bkg_fits, (data_bkg/gain).astype(np.float32), clobber=True)
         bkg_std_fits = input_fits.replace('_wcs.fits', '_bkg_std.fits')
@@ -1712,7 +1671,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
         limits = (1,2*np.amax(s2n_auto),-0.2,0.2)
         plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                       xlabel='S/N (AUTO)', ylabel='(FLUX_OPT - FLUX_AUTO) / FLUX_AUTO', 
-                      filename='fluxopt_vs_fluxauto_'+imtype+'.pdf',
+                      filename=os.path.join(output_dir,'fluxopt_vs_fluxauto_'+imtype+'.pdf'),
                       title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
 
         if fitpsf:
@@ -1721,7 +1680,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
             fluxerr_diff = fluxerr_mypsf / flux_auto
             plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                           xlabel='S/N (AUTO)', ylabel='(FLUX_MYPSF - FLUX_AUTO) / FLUX_AUTO', 
-                          filename='fluxmypsf_vs_fluxauto_'+imtype+'.pdf',
+                          filename=os.path.join(output_dir,'fluxmypsf_vs_fluxauto_'+imtype+'.pdf'),
                           title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
         
             # compare flux_opt with flux_mypsf
@@ -1729,7 +1688,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
             fluxerr_diff = fluxerr_opt / flux_mypsf
             plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                           xlabel='S/N (AUTO)', ylabel='(FLUX_OPT - FLUX_MYPSF) / FLUX_MYPSF', 
-                          filename='fluxopt_vs_fluxmypsf_'+imtype+'.pdf',
+                          filename=os.path.join(output_dir,'fluxopt_vs_fluxmypsf_'+imtype+'.pdf'),
                           title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
 
         # compare flux_opt with flux_aper 2xFWHM
@@ -1742,14 +1701,14 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
             fluxerr_diff = fluxerr_opt / flux_aper
             plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                           xlabel='S/N (AUTO)', ylabel='(FLUX_OPT - FLUX_APER ('+aper_str+'xFWHM)) / FLUX_APER ('+aper_str+'xFWHM)', 
-                          filename='fluxopt_vs_fluxaper'+aper_str+'xFWHM_'+imtype+'.pdf',
+                          filename=os.path.join(output_dir,'fluxopt_vs_fluxaper'+aper_str+'xFWHM_'+imtype+'.pdf'),
                           title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
 
             flux_diff = (flux_auto - flux_aper) / flux_aper
             fluxerr_diff = fluxerr_auto / flux_aper
             plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                           xlabel='S/N (AUTO)', ylabel='(FLUX_AUTO - FLUX_APER ('+aper_str+'xFWHM)) / FLUX_APER ('+aper_str+'xFWHM)', 
-                          filename='fluxauto_vs_fluxaper'+aper_str+'xFWHM_'+imtype+'.pdf',
+                          filename=os.path.join(output_dir,'fluxauto_vs_fluxaper'+aper_str+'xFWHM_'+imtype+'.pdf'),
                           title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
 
             if fitpsf:
@@ -1757,7 +1716,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
                 fluxerr_diff = fluxerr_mypsf / flux_aper
                 plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                               xlabel='S/N (AUTO)', ylabel='(FLUX_MYPSF - FLUX_APER ('+aper_str+'xFWHM)) / FLUX_APER ('+aper_str+'xFWHM)', 
-                              filename='fluxmypsf_vs_fluxaper'+aper_str+'xFWHM_'+imtype+'.pdf',
+                              filename=os.path.join(output_dir,'fluxmypsf_vs_fluxaper'+aper_str+'xFWHM_'+imtype+'.pdf'),
                               title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
             
 
@@ -1775,7 +1734,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
             fluxerr_diff = fluxerr_sexpsf / flux_opt
             plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                           xlabel='S/N (AUTO)', ylabel='(FLUX_SEXPSF - FLUX_OPT) / FLUX_OPT', 
-                          filename='fluxsexpsf_vs_fluxopt_'+imtype+'.pdf',
+                          filename=os.path.join(output_dir,'fluxsexpsf_vs_fluxopt_'+imtype+'.pdf'),
                           title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
 
             if fitpsf:
@@ -1784,7 +1743,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
                 fluxerr_diff = fluxerr_sexpsf / flux_mypsf
                 plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                               xlabel='S/N (AUTO)', ylabel='(FLUX_SEXPSF - FLUX_MYPSF) / FLUX_MYPSF', 
-                              filename='fluxsexpsf_vs_fluxmypsf_'+imtype+'.pdf',
+                              filename=os.path.join(output_dir,'fluxsexpsf_vs_fluxmypsf_'+imtype+'.pdf'),
                               title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
             
             # and compare auto with psf
@@ -1792,7 +1751,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
             fluxerr_diff = fluxerr_sexpsf / flux_auto
             plot_scatter (s2n_auto, flux_diff, fluxerr_diff, limits, class_star,
                           xlabel='S/N (AUTO)', ylabel='(FLUX_SEXPSF - FLUX_AUTO) / FLUX_AUTO', 
-                          filename='fluxsexpsf_vs_fluxauto_'+imtype+'.pdf',
+                          filename=os.path.join(output_dir,'fluxsexpsf_vs_fluxauto_'+imtype+'.pdf'),
                           title='rainbow color coding follows CLASS_STAR: from purple (star) to red (galaxy)')
 
         
@@ -2130,12 +2089,12 @@ def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None):
         psf_ima_shift[nsub] = fft.fftshift(psf_ima_center[nsub])
 
         if display:
-            fits.writeto('psf_ima_config_'+imtype+'_sub.fits', psf_ima_config, clobber=True)
-            fits.writeto('psf_ima_resized_norm_'+imtype+'_sub.fits',
+            fits.writeto(os.path.join(output_dir,'psf_ima_config_'+imtype+'_sub.fits'), psf_ima_config, clobber=True)
+            fits.writeto(os.path.join(output_dir,'psf_ima_resized_norm_'+imtype+'_sub.fits'),
                          psf_ima_resized_norm.astype(np.float32), clobber=True)
-            fits.writeto('psf_ima_center_'+imtype+'_sub.fits',
+            fits.writeto(os.path.join(output_dir,'psf_ima_center_'+imtype+'_sub.fits'),
                          psf_ima_center[nsub].astype(np.float32), clobber=True)            
-            fits.writeto('psf_ima_shift_'+imtype+'_sub.fits',
+            fits.writeto(os.path.join(output_dir,'psf_ima_shift_'+imtype+'_sub.fits'),
                          psf_ima_shift[nsub].astype(np.float32), clobber=True)            
 
     if timing: print 'wall-time spent in get_psf', time.time() - t
@@ -2789,7 +2748,7 @@ def run_remap(image_new, image_ref, image_out, image_out_size,
     cmd = ['swarp', image_ref, '-c', config, '-IMAGEOUT_NAME', image_out, 
            '-IMAGE_SIZE', size_str, '-GAIN_DEFAULT', str(gain),
            '-RESAMPLING_TYPE', resampling_type,
-           '-PROJECTION_ERR', str(projection_err)]
+           '-PROJECTION_ERR', str(projection_err), 'RESAMPLE_DIR', output_dir, 'XML_NAME', os.path.join(output_dir, 'swarp.xml')]
     result = call(cmd)
     
     if timing: print 'wall-time spent in run_remap', time.time()-t
@@ -2973,7 +2932,7 @@ def get_fwhm (cat_ldac, fraction, class_Sort = False, get_elongation=False):
         plt.axis((0,20,y2,y1))
         plt.xlabel('FWHM (pixels)')
         plt.ylabel('MAG_AUTO')
-        plt.savefig('fwhm.pdf')
+        plt.savefig(os.path.join(output_dir,'fwhm.pdf'))
         if show_plots: plt.show()
         plt.close()
 
@@ -2991,7 +2950,7 @@ def get_fwhm (cat_ldac, fraction, class_Sort = False, get_elongation=False):
             plt.axis((0,20,y2,y1))
             plt.xlabel('ELONGATION (A/B)')
             plt.ylabel('MAG_AUTO')
-            plt.savefig('elongation.pdf')
+            plt.savefig(os.path.join(output_dir,'elongation.pdf'))
             if show_plots: plt.show()
             plt.close()
             
@@ -3042,7 +3001,7 @@ def run_psfex(cat_in, file_config, cat_out):
     
     # run psfex from the unix command line
     cmd = ['psfex', cat_in, '-c', file_config,'-OUTCAT_NAME', cat_out,
-           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling)]
+           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling), 'PSF_DIR', output_dir, 'XML_NAME', os.path.join(output_dir, 'psfex.xml')]
     #       '-SAMPLE_FWHMRANGE', sample_fwhmrange,
     #       '-SAMPLE_MAXELLIP', maxellip_str]
     print cmd
@@ -3171,16 +3130,16 @@ def run_ZOGY(R,N,Pr,Pn,sr,sn,fr,fn,Vr,Vn,dx,dy):
         #print 'dy is finite?', np.isfinite(dy)
     
     if display:
-        fits.writeto('Pn_hat.fits', np.real(Pn_hat).astype(np.float32), clobber=True)
-        fits.writeto('Pr_hat.fits', np.real(Pr_hat).astype(np.float32), clobber=True)
-        fits.writeto('kr.fits', np.real(kr).astype(np.float32), clobber=True)
-        fits.writeto('kn.fits', np.real(kn).astype(np.float32), clobber=True)
-        fits.writeto('Sr.fits', Sr.astype(np.float32), clobber=True)
-        fits.writeto('Sn.fits', Sn.astype(np.float32), clobber=True)
-        fits.writeto('VSr.fits', VSr.astype(np.float32), clobber=True)
-        fits.writeto('VSn.fits', VSn.astype(np.float32), clobber=True)
-        fits.writeto('VSr_ast.fits', VSr_ast.astype(np.float32), clobber=True)
-        fits.writeto('VSn_ast.fits', VSn_ast.astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'Pn_hat.fits'), np.real(Pn_hat).astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'Pr_hat.fits'), np.real(Pr_hat).astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'kr.fits'), np.real(kr).astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'kn.fits'), np.real(kn).astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'Sr.fits'), Sr.astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'Sn.fits'), Sn.astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'VSr.fits'), VSr.astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'VSn.fits'), VSn.astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'VSr_ast.fits'), VSr_ast.astype(np.float32), clobber=True)
+        fits.writeto(os.path.join(output_dir,'VSn_ast.fits'), VSn_ast.astype(np.float32), clobber=True)
 
     # and finally S_corr
     V_S = VSr + VSn
@@ -3318,9 +3277,9 @@ def main():
     parser.add_argument('--sub', default=None, help='sub image')
     parser.add_argument('--telescope', default=None, help='telescope')
     parser.add_argument('--log', default=None, help='help')
-    parser.add_argument('--subpipe', default=False, help='subpipe')
+
     args = parser.parse_args()
-    optimal_subtraction(args.new_fits, args.ref_fits, args.ref_fits_remap, args.sub, args.telescope, args.log, args.subpipe)
+    optimal_subtraction(args.new_fits, args.ref_fits, args.ref_fits_remap, args.sub, args.telescope, args.log)
         
 if __name__ == "__main__":
     main()
