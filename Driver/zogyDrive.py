@@ -23,7 +23,8 @@ obsList is a list of (image, dqmask) pairs
 template is the name of the template file
 configDir is the directory of config files (sex.config, etc) for ZOGY
 """
-def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
+def zogyDrive(obsDir, obsList, template, templateDQ, configDir, filterName):
+    
     # if template MEF hasn't already been split into obsDir/Template, do so
     try:
         templateDir = path.join(obsDir,'Template')
@@ -31,11 +32,11 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
     except OSError:
         pass
 
-    if prepMEF(templateDir, template, templateDir):
+    if prepMEF(templateDir, template, templateDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
         print 'Can\'t process template file ', template
         return
 
-    if prepMEF(templateDir, templateDQ, templateDir):
+    if prepMEF(templateDir, templateDQ, templateDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
         print 'Can\'t process template DQ file ', templateDQ
         return
 
@@ -53,11 +54,15 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
 
         indx = image.rindex('.fits')
         imageID = image[0:indx]
+        indx = template.rindex('.fits')
+        templateID = template[0:indx]
+        indx = templateDQ.rindex('.fits')
+        templateDqID = templateDQ[0:indx]
         indx = dq.rindex('.fits')
         dqID = dq[0:indx]
         
         mkdirNoSquawk(path.join(obsDir,imageID))
-        if prepMEF(obsDir, image, tempDir):
+        if prepMEF(obsDir, image, tempDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
             print 'Error processing image ', image
 
         imagePat = re.compile(imageID + r'_(\d+).fits')
@@ -71,7 +76,7 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
                 os.renames(path.join(tempDir,i), path.join(imageDestDir, i))
 
         mkdirNoSquawk(tempDir)
-        if prepMEF(obsDir, dq, tempDir):
+        if prepMEF(obsDir, dq, tempDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
            print 'Error processing dq image ', dq
 
         imagePat = re.compile(dqID + r'_(\d+).fits')
@@ -84,6 +89,32 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir):
                 mkdirNoSquawk(imageDestDir)
                 os.renames(path.join(tempDir,i), path.join(imageDestDir, i))
 
+        imageDirList = os.listdir(path.join(obsDir,imageID))
+        for d in imageDirList:
+            imageList = os.listdir(path.join(obsDir,imageID,d))
+            newPat = re.compile(imageID + r'_(\d+).fits')
+            newDqPat = re.compile(dqID + r'_(\d+).fits')
+
+            for i in imageList:
+                mtch = newPat.match(i)
+                mtchDq = newDqPat.match(i)
+                if mtch:
+                    ccdID = mtch.group(1)
+                    basePath = path.join(obsDir, imageID, 'ccd_'+ccdID)
+                    newImage = path.join(basePath,i)
+                    templateImage = templateID + '_' + ccdID + '.fits'
+                    templateDqImage = templateDqID + '_' + ccdID + '.fits'
+                    refImage = path.join(templateDir, templateImage)
+                    refDqImage = path.join(templateDir, templateDqImage)
+                    print newImage, refImage, refDqImage
+                elif mtchDq:
+                    ccdID = mtchDq.group(1)
+                    basePath = path.join(obsDir, imageID, 'ccd_'+ccdID)
+                    newDqImage = path.join(basePath,i)
+                    print newDqImage
+            if newImage is not None and refImage is not None and newDqImage is not None and refDqImage is not None:
+                zogy.optimal_subtraction(newImage, refImage, use_existing_wcs=True, new_mask=newDqImage, ref_mask=refDqImage, telescope='Decam')
+
     return
 
 def mkdirNoSquawk(dir):
@@ -92,7 +123,7 @@ def mkdirNoSquawk(dir):
     except OSError:
         pass
     
-def prepMEF(srcDir, imageName, destDir):
+def prepMEF(srcDir, imageName, destDir, **kwargs):
 
     imagePath = path.join(srcDir, imageName)
     if not path.isfile(imagePath):
@@ -111,11 +142,11 @@ def prepMEF(srcDir, imageName, destDir):
             break
 
     if not matched:
-        MEFsplit(imagePath, destDir)
+        MEFsplit(imagePath, destDir, **kwargs)
 
     return False
         
-def MEFsplit(MEFname, outputDir):
+def MEFsplit(MEFname, outputDir, **kwargs):
     hdulist = pf.open(MEFname)
     priHeader = hdulist[0].header
     numext = priHeader['NEXTEND']
@@ -127,9 +158,13 @@ def MEFsplit(MEFname, outputDir):
         # use CCDNUM in name, not n
         hdu = hdulist[n+1]
         header = hdu.header
+        header.update(priHeader)
         data = hdu.data
         ccdnum = header['CCDNUM']
         outName = '%s/%s_%d.fits' % (outputDir, MEFfileBase, ccdnum)
+        if kwargs is not None:
+            for kw, value in kwargs.iteritems():
+                header[kw] = value
         pf.writeto(outName, data, header=header)
 
     return

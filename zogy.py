@@ -173,9 +173,12 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         # parameter descriptions, see above.
 
         Constants = importlib.import_module(telescope)
+
+#        reload(Constants)
         
         # make these global parameters
-        global subimage_size, subimage_border, bkg_method, bkg_nsigma, bkg_boxsize, bkg_filtersize, fratio_local, dxdy_local, transient_nsigma, nfakestars, fakestar_s2n, dosex, dosex_psffit, pixelscale, fwhm_imafrac, fwhm_detect_thresh, fwhm_class_sort, fwhm_frac, use_single_psf, psf_clean_factor, psf_radius, psf_sampling, cfg_dir, sex_cfg, sex_cfg_psffit, sex_par, sex_par_psffit, sex_mask_par, sex_mask_par_psffit, psfex_cfg, swarp_cfg, apphot_radii, redo, verbose, timing, display, make_plots, show_plots
+        global subimage_size, subimage_border, bkg_method, bkg_nsigma, bkg_boxsize, bkg_filtersize, fratio_local, dxdy_local, transient_nsigma, nfakestars, fakestar_s2n, dosex, dosex_psffit, pixelscale, fwhm_imafrac, fwhm_detect_thresh, fwhm_class_sort, fwhm_frac, use_single_psf, psf_clean_factor, psf_radius, psf_sampling, cfg_dir, sex_cfg, sex_cfg_psffit, sex_par, sex_par_psffit, sex_mask_par, sex_mask_par_psffit, sex_filter, sex_nnw, psfex_cfg, swarp_cfg, apphot_radii, redo, verbose, timing, display, make_plots, show_plots
+
 
         subimage_size = Constants.subimage_size
         subimage_border = Constants.subimage_border
@@ -213,6 +216,10 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         sex_cfg_psffit = Constants.sex_cfg_psffit
         sex_par = Constants.sex_par
         sex_par_psffit = Constants.sex_par_psffit
+        sex_mask_par = Constants.sex_mask_par
+        sex_mask_par_psffit = Constants.sex_mask_par_psffit
+        sex_filter = Constants.sex_filter
+        sex_nnw = Constants.sex_nnw
         psfex_cfg = Constants.psfex_cfg
         swarp_cfg = Constants.swarp_cfg
 
@@ -225,6 +232,8 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         make_plots = Constants.make_plots
         show_plots = Constants.show_plots
 
+        print 'sex_mask_par: ', sex_mask_par
+
         
     # define the base names of input fits files, base_new and
     # base_ref, as global so they can be used in any function in this
@@ -234,7 +243,8 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     base_new = new_fits.split('.fits')[0]
     base_ref = ref_fits.split('.fits')[0]
 
-    (output_dir, base_unused) = os.path.split(new_fits)
+    (rel_output_dir, base_unused) = os.path.split(new_fits)
+    output_dir = os.path.abspath(rel_output_dir)
         
     # read in header of new_fits
     t = time.time()
@@ -2448,7 +2458,8 @@ def run_wcs(image_in, image_out, ra, dec, gain, readnoise, fwhm, pixscale, use_e
 
     cmd_sex = 'sex -SEEING_FWHM '+str(seeing)+' -PARAMETERS_NAME '+sex_par_temp\
               +' -PHOT_APERTURES '+apphot_diams_str+' -BACK_SIZE '+str(bkg_boxsize)\
-              +' -BACK_FILTERSIZE '+str(bkg_filtersize)
+              +' -BACK_FILTERSIZE '+str(bkg_filtersize)\
+              +' -FILTER_NAME '+ sex_filter + ' -STARNNW_NAME '+ sex_nnw
 
     # add commands to produce BACKGROUND, BACKGROUND_RMS and
     # background-subtracted image with all pixels where objects were
@@ -2749,6 +2760,7 @@ def run_remap(image_new, image_ref, image_out, image_out_size,
            '-IMAGE_SIZE', size_str, '-GAIN_DEFAULT', str(gain),
            '-RESAMPLING_TYPE', resampling_type,
            '-PROJECTION_ERR', str(projection_err), 'RESAMPLE_DIR', output_dir, 'XML_NAME', os.path.join(output_dir, 'swarp.xml')]
+    print 'swarp cmd: ', cmd
     result = call(cmd)
     
     if timing: print 'wall-time spent in run_remap', time.time()-t
@@ -2827,7 +2839,8 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
     cmd = ['sex', image, '-c', file_config, '-CATALOG_NAME', cat_out, 
            '-PARAMETERS_NAME', file_params, '-PIXEL_SCALE', str(pixscale),
            '-SEEING_FWHM', str(seeing),'-PHOT_APERTURES',apphot_diams_str,
-           '-BACK_SIZE', str(bkg_boxsize), '-BACK_FILTERSIZE', str(bkg_filtersize)]
+           '-BACK_SIZE', str(bkg_boxsize), '-BACK_FILTERSIZE', str(bkg_filtersize),
+           '-FILTER_NAME', sex_filter, '-STARNNW_NAME', sex_nnw]
 
     # in case of fraction being less than 1: only care about higher S/N detections
     if fraction < 1.: cmd += ['-DETECT_THRESH', str(fwhm_detect_thresh)]
@@ -2837,7 +2850,8 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
 
     # if Mask file is supplied, add it
     if mask_file: cmd += ['-FLAG_IMAGE', mask_file]
-    
+
+    print 'sex cmd: ', cmd
     # run command
     result = call(cmd)
 
