@@ -724,7 +724,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
                    'psf_ima_center_new_sub.fits', 'psf_ima_center_ref_sub.fits', 
                    'psf_ima_shift_new_sub.fits', 'psf_ima_shift_ref_sub.fits']
 
-            result = call(cmd)
+#            result = call(cmd)
 
         if timing: print 'wall-time spent in nsub loop', time.time()-tloop
 
@@ -810,7 +810,7 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     else:
         cmd = ['ds9','-zscale',new_fits,ref_fits_remap,'D.fits','S.fits','Scorr.fits',
                'Fpsf.fits', 'Fpsferr.fits']
-    result = call(cmd)
+    # result = call(cmd)
 
 
 ################################################################################
@@ -1218,10 +1218,10 @@ def flux_optimal (P, P_noshift, D, S, S_std, RON, nsigma=10000, max_iters=10,
         print 'no. of rejected pixels', len(mask[mask==False])
         print 'np.amax((D - flux_opt * P - S)**2 / V)', np.amax((D - flux_opt * P - S)**2 / V)
 
-        result = ds9_arrays(D=D, P=P, S=S, V=V, fluxoptPsky = flux_opt*P+S,
-                            D_min_fluxoptP_min_S=(D - flux_opt * P - S),
-                            D_min_fluxoptP_min_S_squared_divV=((D - flux_opt * P - S)**2/V),
-                            mask=mask.astype(int), V_ast=V_ast)
+        #result = ds9_arrays(D=D, P=P, S=S, V=V, fluxoptPsky = flux_opt*P+S,
+        #                    D_min_fluxoptP_min_S=(D - flux_opt * P - S),
+        #                    D_min_fluxoptP_min_S_squared_divV=((D - flux_opt * P - S)**2/V),
+        #                    mask=mask.astype(int), V_ast=V_ast)
 
     return flux_opt, fluxerr_opt, mask
     
@@ -3022,9 +3022,17 @@ def run_psfex(cat_in, file_config, cat_out, dir_override=None):
         psfDir = dir_override
     else:
         psfDir = output_dir
-        
+
+    checkImageStr = ''
+    checkImageList = ['chi.fits','proto.fits','samp.fits','resi.fits','snap.fits','basis.fits']
+    nMax = len(checkImageList) - 1
+    for (n, i) in enumerate(checkImageList):
+        checkImageStr += os.path.join(output_dir, i)
+        if n < nMax:
+            checkImageStr += ','
+    
     cmd = ['psfex', cat_in, '-c', file_config,'-OUTCAT_NAME', cat_out,
-           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling), '-PSF_DIR', psfDir, '-XML_NAME', os.path.join(output_dir, 'psfex.xml')]
+           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling), '-PSF_DIR', psfDir, '-XML_NAME', os.path.join(output_dir, 'psfex.xml'), '-CHECKIMAGE_NAME', checkImageStr]
     #       '-SAMPLE_FWHMRANGE', sample_fwhmrange,
     #       '-SAMPLE_MAXELLIP', maxellip_str]
     print cmd
