@@ -238,13 +238,14 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     # define the base names of input fits files, base_new and
     # base_ref, as global so they can be used in any function in this
     # module
-    global base_new, base_ref, output_dir
+    global base_new, base_ref, output_dir, template_dir
 
     base_new = new_fits.split('.fits')[0]
     base_ref = ref_fits.split('.fits')[0]
 
-    (rel_output_dir, base_unused) = os.path.split(new_fits)
-    output_dir = os.path.abspath(rel_output_dir)
+    (output_dir, base_unused) = os.path.split(new_fits)
+
+    (template_dir, base_unused) = os.path.split(ref_fits)
         
     # read in header of new_fits
     t = time.time()
@@ -1483,9 +1484,9 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
         # with that of the original wcs-corrected reference image
         # for all background methods except 1
         if bkg_method!=1:
-            fits.writeto(os.path.join(output_dir,bkg_fits), (data_bkg/gain).astype(np.float32),
+            fits.writeto(bkg_fits, (data_bkg/gain).astype(np.float32),
                          header=header_wcs, clobber=True)
-            fits.writeto(os.path.join(output_dir,bkg_std_fits), (data_bkg_std/gain).astype(np.float32),
+            fits.writeto(bkg_std_fits, (data_bkg_std/gain).astype(np.float32),
                          header=header_wcs, clobber=True)
             # project ref image background maps to new image
             bkg_fits_remap = base_ref+'_bkg_remap.fits'
@@ -1503,7 +1504,7 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
                 data_bkg_std = hdulist[0].data * gain
         # only for method 1 the objmask needs to be projected
         else:
-            fits.writeto(os.path.join(output_dir,objmask_fits), data_objmask.astype(np.float32),
+            fits.writeto(objmask_fits, data_objmask.astype(np.float32),
                          header=header_wcs, clobber=True)
             objmask_fits_remap = base_ref+'_objmask_remap.fits' ### NEEDS work
             result = run_remap(base_new+'_wcs.fits', objmask_fits, objmask_fits_remap,
@@ -1962,7 +1963,10 @@ def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None):
     if not os.path.isfile(psfexcat) or redo:
         print 'sexcat', sexcat
         print 'psfexcat', psfexcat
-        result = run_psfex(sexcat, psfex_cfg, psfexcat)
+        if imtype=='ref':
+            result = run_psfex(sexcat, psfex_cfg, psfexcat, dir_override=template_dir)
+        else:
+            result = run_psfex(sexcat, psfex_cfg, psfexcat)
 
     # again run SExtractor, but now using output PSF from PSFex, so
     # that PSF-fitting can be performed for all objects. The output
@@ -2759,7 +2763,7 @@ def run_remap(image_new, image_ref, image_out, image_out_size,
     cmd = ['swarp', image_ref, '-c', config, '-IMAGEOUT_NAME', image_out, 
            '-IMAGE_SIZE', size_str, '-GAIN_DEFAULT', str(gain),
            '-RESAMPLING_TYPE', resampling_type,
-           '-PROJECTION_ERR', str(projection_err), 'RESAMPLE_DIR', output_dir, 'XML_NAME', os.path.join(output_dir, 'swarp.xml')]
+           '-PROJECTION_ERR', str(projection_err), '-RESAMPLE_DIR', output_dir, '-XML_NAME', os.path.join(output_dir, 'swarp.xml')]
     print 'swarp cmd: ', cmd
     result = call(cmd)
     
@@ -2978,7 +2982,7 @@ def get_fwhm (cat_ldac, fraction, class_Sort = False, get_elongation=False):
 
 ################################################################################
 
-def run_psfex(cat_in, file_config, cat_out):
+def run_psfex(cat_in, file_config, cat_out, dir_override=None):
     
     """Function that runs PSFEx on [cat_in] (which is a SExtractor output
        catalog in FITS_LDAC format) using the configuration file
@@ -3014,8 +3018,13 @@ def run_psfex(cat_in, file_config, cat_out):
     #print 'maxellip_str', maxellip_str
     
     # run psfex from the unix command line
+    if dir_override:
+        psfDir = dir_override
+    else:
+        psfDir = output_dir
+        
     cmd = ['psfex', cat_in, '-c', file_config,'-OUTCAT_NAME', cat_out,
-           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling), 'PSF_DIR', output_dir, 'XML_NAME', os.path.join(output_dir, 'psfex.xml')]
+           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling), '-PSF_DIR', psfDir, '-XML_NAME', os.path.join(output_dir, 'psfex.xml')]
     #       '-SAMPLE_FWHMRANGE', sample_fwhmrange,
     #       '-SAMPLE_MAXELLIP', maxellip_str]
     print cmd
