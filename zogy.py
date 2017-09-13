@@ -123,7 +123,7 @@ redo = True         # execute functions even if output file exist
 verbose = True          # print out extra info
 timing = True            # (wall-)time the different functions
 display = False          # show intermediate fits images
-make_plots = True        # make diagnostic plots and save them as pdf
+make_plots = False        # make diagnostic plots and save them as pdf
 show_plots = False       # show diagnostic plots
 use_existing_wcs = False # Use existing wcs in new and ref images instead of running astrometry.net
 
@@ -387,6 +387,8 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         print 'fratio_mean_full, fratio_std_full, fratio_median_full', \
             fratio_mean_full, fratio_std_full, fratio_median_full
     
+    make_plots = False
+
     if make_plots:
         # plot y vs x
         plt.axis((0,xsize_new,0,ysize_new))
@@ -769,6 +771,8 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     fits.writeto(os.path.join(output_dir,'Fpsferr.fits'), data_Fpsferr_full, clobber=True)
                 
     # make comparison plot of flux input and output
+    make_plots = False
+    
     if make_plots and nfakestars>0:
 
         x = np.arange(nsubs)+1
@@ -997,6 +1001,8 @@ def get_optflux_xycoords (psfex_bintable, D, S, S_std, RON, xcoords, ycoords,
 
     #result = ds9_arrays(D=D, D_replaced=D_replaced)
 
+    make_plots = False
+    
     if psffit and make_plots:
         # compare xshift/yshift_array with psf xy shifts
         dx = xshift_array - x_psf
@@ -1663,7 +1669,8 @@ def prep_optimal_subtraction(input_fits, nsubs, imtype, fwhm, remap=None, input_
     hdu = fits.BinTableHDU.from_columns(orig_cols + new_cols)
     newcat = input_fits.replace('.fits', '.sexcat_fluxopt')
     hdu.writeto(newcat, clobber=True)
-
+    make_plots = False
+    
     if make_plots:
         # compare flux_opt with flux_auto
         index = ((data_sex['FLUX_AUTO']>0) & (data_sex['FLAGS']==0))
