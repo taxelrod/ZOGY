@@ -2927,7 +2927,8 @@ def get_fwhm (cat_ldac, fraction, class_Sort = False, get_elongation=False):
             print 'elongation_mean, elongation_median, elongation_std',\
                 elongation_mean, elongation_median, elongation_std
             
-        
+    make_plots = False
+    
     if make_plots:
 
         # best parameter to plot vs. FWHM is MAG_AUTO

@@ -149,7 +149,7 @@ def prepMEF(srcDir, imageName, destDir, **kwargs):
 def MEFsplit(MEFname, outputDir, **kwargs):
     hdulist = pf.open(MEFname)
     priHeader = hdulist[0].header
-    numext = priHeader['NEXTEND']
+    numext = len(hdulist) - 1
     print numext
 
     MEFfileName = path.basename(MEFname)
