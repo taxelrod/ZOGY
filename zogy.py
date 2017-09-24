@@ -2835,6 +2835,18 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
             fits.writeto(mask_fraction, mask_data_fraction.astype(np.int32), mask_header, clobber=True)
             mask_file = mask_fraction
 
+        if wt_file:
+            with fits.open(wt_file) as hdulist:
+                wt_header = hdulist[0].header
+                wt_data = hdulist[0].data
+                
+            wt_data_fraction = wt_data[center_y-halfsize_y:center_y+halfsize_y,
+                             center_x-halfsize_x:center_x+halfsize_x]
+
+            wt_fraction = wt_file.replace('.fits','_fraction.fits')
+            fits.writeto(wt_fraction, wt_data_fraction.astype(np.int32), wt_header, clobber=True)
+            wt_file = wt_fraction
+
         # make image point to image_fraction
         image = image_fraction
         cat_out = cat_out+'_fraction'
