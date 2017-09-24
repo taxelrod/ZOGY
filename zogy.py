@@ -2868,7 +2868,7 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
     if mask_file: cmd += ['-FLAG_IMAGE', mask_file]
 
     # if Weight file is supplied, add it
-    if wt_file: cmd += ['WEIGHT_TYPE MAP_WEIGHT', '-WEIGHT_IMAGE', wt_file]
+    if wt_file: cmd += ['-WEIGHT_TYPE MAP_WEIGHT', '-WEIGHT_IMAGE', wt_file]
 
     print 'sex cmd: ', cmd
     # run command
