@@ -2844,7 +2844,7 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
                              center_x-halfsize_x:center_x+halfsize_x]
 
             wt_fraction = wt_file.replace('.fits','_fraction.fits')
-            fits.writeto(wt_fraction, wt_data_fraction.astype(np.int32), wt_header, clobber=True)
+            fits.writeto(wt_fraction, wt_data_fraction.astype(np.float32), wt_header, clobber=True)
             wt_file = wt_fraction
 
         # make image point to image_fraction
