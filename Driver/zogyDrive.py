@@ -23,7 +23,7 @@ obsList is a list of (image, dqmask) pairs
 template is the name of the template file
 configDir is the directory of config files (sex.config, etc) for ZOGY
 """
-def zogyDrive(obsDir, obsList, template, templateDQ, configDir, filterName):
+def zogyDrive(obsDir, obsList, template, templateDQ, templateWt, configDir, filterName):
     
     # if template MEF hasn't already been split into obsDir/Template, do so
     try:
@@ -40,17 +40,22 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir, filterName):
         print 'Can\'t process template DQ file ', templateDQ
         return
 
+    if prepMEF(templateDir, templateWt, templateDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
+        print 'Can\'t process template weight file ', templateWt
+        return
+
     tempDir = path.join(obsDir,'tmp')
     mkdirNoSquawk(tempDir)
     
     for obs in obsList:
-        # MEFsplit obs and dq image into tempDir
-        # move each individual obs and dq image into appropriate ccd_nn subdirectory
-        # run zogy.optimal_subtraction() on each image/dq ccd pair
+        # MEFsplit obs, dq image, and weight image into tempDir
+        # move each individual obs, dq, and weight image into appropriate ccd_nn subdirectory
+        # run zogy.optimal_subtraction() on each image/dq/wt ccd trio
         # copy fits headers into S.fits and rename S_nn.fits (and for other images)
         # MEFjoin the S_nn.fits images (and similar)
         image = obs[0]
         dq = obs[1]
+        wt = obs[2]
 
         indx = image.rindex('.fits')
         imageID = image[0:indx]
@@ -58,8 +63,12 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir, filterName):
         templateID = template[0:indx]
         indx = templateDQ.rindex('.fits')
         templateDqID = templateDQ[0:indx]
+        indx = templateWt.rindex('.fits')
+        templateWtID = templateWt[0:indx]
         indx = dq.rindex('.fits')
         dqID = dq[0:indx]
+        indx = wt.rindex('.fits')
+        wtID = wt[0:indx]
         
         mkdirNoSquawk(path.join(obsDir,imageID))
         if prepMEF(obsDir, image, tempDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
@@ -89,31 +98,54 @@ def zogyDrive(obsDir, obsList, template, templateDQ, configDir, filterName):
                 mkdirNoSquawk(imageDestDir)
                 os.renames(path.join(tempDir,i), path.join(imageDestDir, i))
 
+        mkdirNoSquawk(tempDir)
+        if prepMEF(obsDir, wt, tempDir, GAIN=4.0, RDNOISE=5.0, PIXSCALE=0.263, SEEING=1.0, FILTNAME=filterName):
+           print 'Error processing wt image ', wt
+
+        imagePat = re.compile(wtID + r'_(\d+).fits')
+        imageList = os.listdir(tempDir)
+        for i in imageList:
+            mtch = imagePat.match(i)
+            if mtch:
+                ccdID = mtch.group(1)
+                imageDestDir = path.join(obsDir, imageID, 'ccd_'+ccdID)
+                mkdirNoSquawk(imageDestDir)
+                os.renames(path.join(tempDir,i), path.join(imageDestDir, i))
+
         imageDirList = os.listdir(path.join(obsDir,imageID))
         for d in imageDirList:
             imageList = os.listdir(path.join(obsDir,imageID,d))
             newPat = re.compile(imageID + r'_(\d+).fits')
             newDqPat = re.compile(dqID + r'_(\d+).fits')
+            newWtPat = re.compile(wtID + r'_(\d+).fits')
 
             for i in imageList:
                 mtch = newPat.match(i)
                 mtchDq = newDqPat.match(i)
+                mtchWt = newWtPat.match(i)
                 if mtch:
                     ccdID = mtch.group(1)
                     basePath = path.join(obsDir, imageID, 'ccd_'+ccdID)
                     newImage = path.join(basePath,i)
                     templateImage = templateID + '_' + ccdID + '.fits'
                     templateDqImage = templateDqID + '_' + ccdID + '.fits'
+                    templateWtImage = templateWtID + '_' + ccdID + '.fits'
                     refImage = path.join(templateDir, templateImage)
                     refDqImage = path.join(templateDir, templateDqImage)
-                    print newImage, refImage, refDqImage
+                    refWtImage = path.join(templateDir, templateWtImage)
+                    print newImage, refImage, refDqImage, refWtImage
                 elif mtchDq:
                     ccdID = mtchDq.group(1)
                     basePath = path.join(obsDir, imageID, 'ccd_'+ccdID)
                     newDqImage = path.join(basePath,i)
                     print newDqImage
-            if newImage is not None and refImage is not None and newDqImage is not None and refDqImage is not None:
-                zogy.optimal_subtraction(newImage, refImage, use_existing_wcs=True, new_mask=newDqImage, ref_mask=refDqImage, telescope='Decam')
+                elif mtchWt:
+                    ccdID = mtchWt.group(1)
+                    basePath = path.join(obsDir, imageID, 'ccd_'+ccdID)
+                    newWtImage = path.join(basePath,i)
+                    print newWtImage
+            if newImage is not None and refImage is not None and newDqImage is not None and refDqImage is not None and newWtImage is not None and refWtImage is not None:
+                zogy.optimal_subtraction(newImage, refImage, use_existing_wcs=True, new_mask=newDqImage, ref_mask=refDqImage, new_wt=newWtImage, ref_wt=refWtImage, telescope='Decam')
 
     return
 

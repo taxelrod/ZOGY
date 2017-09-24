@@ -132,7 +132,7 @@ use_existing_wcs = False # Use existing wcs in new and ref images instead of run
 
 def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
                         telescope=None, log=None, use_existing_wcs = False,
-                        new_mask=None, ref_mask=None):
+                        new_mask=None, ref_mask=None, new_wt=None, ref_wt=None):
     
     """Function that accepts a new and a reference fits image, finds their
     WCS solution using Astrometry.net, runs SExtractor (inside
@@ -274,7 +274,8 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
     else:
         sex_par_arg = sex_par
     fwhm_new, fwhm_std_new = run_sextractor(base_new+'.fits', sexcat_new, sex_cfg,
-                                            sex_par_arg, pixscale_new, fraction=fwhm_imafrac, mask_file=new_mask)
+                                            sex_par_arg, pixscale_new, fraction=fwhm_imafrac, mask_file=new_mask,
+                                            wt_file=new_wt)
     print 'fwhm_new, fwhm_std_new', fwhm_new, fwhm_std_new
     print 'fwhm from header', header_new['SEEING']
 
@@ -296,7 +297,8 @@ def optimal_subtraction(new_fits, ref_fits, ref_fits_remap=None, sub=None,
         sex_par_arg = sex_par
     sexcat_ref = base_ref+'.sexcat'
     fwhm_ref, fwhm_std_ref = run_sextractor(base_ref+'.fits', sexcat_ref, sex_cfg,
-                                            sex_par_arg, pixscale_ref, fraction=fwhm_imafrac, mask_file=ref_mask )
+                                            sex_par_arg, pixscale_ref, fraction=fwhm_imafrac, mask_file=ref_mask,
+                                            wt_file=ref_wt)
     print 'fwhm_ref, fwhm_std_ref', fwhm_ref, fwhm_std_ref
     print 'fwhm from header', header_ref['SEEING']
 
@@ -1936,7 +1938,7 @@ def plot_scatter (x, y, yerr, limits, corder, cmap='rainbow_r', symbol='o',
 
 ################################################################################
 
-def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None):
+def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None, image_wt=None):
 
     """Function that takes in [image] and determines the actual Point
     Spread Function as a function of position from the full frame, and
@@ -1963,8 +1965,11 @@ def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None):
     # independent SExtractor run would.
     sexcat = image.replace('.fits', '.sexcat')
     if (not os.path.isfile(sexcat) or redo) and dosex:
-        result = run_sextractor(image, sexcat+'_alt', sex_cfg, sex_par_arg, pixscale, fwhm=fwhm, mask_file=image_mask)
-        
+        result = run_sextractor(image, sexcat+'_alt', sex_cfg, sex_par_arg, pixscale, fwhm=fwhm, mask_file=image_mask, wt_file=image_wt)
+    # ---------
+    # FILTER sexcat here to include only good psf candidates
+    #----------
+
     # run psfex on SExtractor output catalog
     psfexcat = image.replace('.fits', '.psfexcat')
     if not os.path.isfile(psfexcat) or redo:
@@ -1981,7 +1986,7 @@ def get_psf(image, ima_header, nsubs, imtype, fwhm, pixscale, image_mask=None):
     # related to the PSF fitting.
     if (not os.path.isfile(sexcat+'_psffit') or redo) and dosex_psffit:
         result = run_sextractor(image, sexcat+'_psffit', sex_cfg_psffit,
-                                sex_mask_par_psffit, pixscale, fitpsf=True, fwhm=fwhm, mask_file=image_mask)
+                                sex_mask_par_psffit, pixscale, fitpsf=True, fwhm=fwhm, mask_file=image_mask, wt_file=image_wt)
         
     # read in PSF output binary table from psfex
     psfex_bintable = image.replace('.fits', '.psf')
@@ -2779,7 +2784,7 @@ def run_remap(image_new, image_ref, image_out, image_out_size,
 ################################################################################
 
 def run_sextractor(image, cat_out, file_config, file_params, pixscale,
-                   fitpsf=False, fraction=1.0, fwhm=5.0, mask_file=None):
+                   fitpsf=False, fraction=1.0, fwhm=5.0, mask_file=None, wt_file=None):
 
     """Function that runs SExtractor on [image], and saves the output
        catalog in [outcat], using the configuration file [file_config]
@@ -2861,6 +2866,9 @@ def run_sextractor(image, cat_out, file_config, file_params, pixscale,
 
     # if Mask file is supplied, add it
     if mask_file: cmd += ['-FLAG_IMAGE', mask_file]
+
+    # if Weight file is supplied, add it
+    if wt_file: cmd += ['WEIGHT_TYPE MAP_WEIGHT', '-WEIGHT_IMAGE', wt_file]
 
     print 'sex cmd: ', cmd
     # run command
